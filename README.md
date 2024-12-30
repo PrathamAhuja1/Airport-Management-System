@@ -1,7 +1,5 @@
 Air Traffic Management System ✈️💻
 
-Developed an interactive Air Traffic Management System integrating Reinforcement Learning and a dynamic PyQt5 GUI to optimize air traffic operations.
-
 🌟 Key Features:
 1. Dynamic Flight Management: Displays and manages 20 flights in real-time, with auto-generated data for seamless monitoring.
 
