@@ -19,11 +19,11 @@ Developed an interactive Air Traffic Management System integrating Reinforcement
 
 
 🔧 Tech Stack:
-Python for RL and logic.
-PyQt5 for GUI.
-Stable-Baselines3 DQN for reinforcement learning.
-Matplotlib & PyQtGraph for visualization.
-This project showcases how AI and machine learning can revolutionize critical systems like air traffic management. 🌐
+1. Python for RL and logic.
+2. PyQt5 for GUI.
+3. Stable-Baselines3 DQN for reinforcement learning.
+4. Matplotlib & PyQtGraph for visualization.
+5. This project showcases how AI and machine learning can revolutionize critical systems like air traffic management. 🌐
 
 #AirTrafficManagement #Python #ReinforcementLearning #MachineLearning #PyQt5 #Innovation
 
