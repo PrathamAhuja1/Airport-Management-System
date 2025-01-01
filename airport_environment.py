@@ -10,14 +10,13 @@ class AirTrafficEnv(gym.Env):
     def __init__(self):
         super(AirTrafficEnv, self).__init__()
 
-        #Assign runways, assign gates, clear for taxiing/takeoff
-        
+        # Assign runways, assign gates, clear for taxiing/takeoff
         self.action_space = spaces.Discrete(15)  
 
+        # Updated observation space to match the shape of (6,)
         self.observation_space = spaces.Box(low=0, high=10, shape=(6,), dtype=np.float32)
 
         # Airport parameters
-        
         self.weather_conditions = ['sunny', 'clear', 'cloudy', 'storm', 'fog']
         self.time_of_day = ['day', 'night']
         self.current_time_of_day = 'day'
@@ -25,13 +24,10 @@ class AirTrafficEnv(gym.Env):
         self.gates = 5
         self.capacity = 10
 
-    
         self.reset()
 
     def reset(self):
-        
-        """Reseting the environment to an initial state."""
-        
+        """Resetting the environment to an initial state."""
         self.weather = random.choice(self.weather_conditions)
         self.current_time_of_day = random.choice(self.time_of_day)
         self.emergency_factor = 'low'
@@ -43,7 +39,6 @@ class AirTrafficEnv(gym.Env):
         return self.state
 
     def generate_aircraft(self):
-        
         airlines = ['Air India', 'Emirates', 'Delta', 'Lufthansa', 'Qatar Airways']
         return [
             {
@@ -56,23 +51,19 @@ class AirTrafficEnv(gym.Env):
         ]
 
     def get_state(self):
-        
         """Returning the current state of the environment."""
-        
         state = np.array([
-            self.weather_conditions.index(self.weather),
-            self.time_of_day.index(self.current_time_of_day),
-            len(self.aircraft_list),
-            self.emergency_flights,
-            sum(self.runway_availability),
-            sum(self.gate_availability)
+            self.weather_conditions.index(self.weather),         # Weather condition index
+            self.time_of_day.index(self.current_time_of_day),     # Time of day index
+            len(self.aircraft_list),                               # Number of aircraft
+            self.emergency_flights,                                # Emergency flight count
+            sum(self.runway_availability),                        # Number of available runways
+            sum(self.gate_availability),                          # Number of available gates
         ], dtype=np.float32)
         return state
 
     def get_weather_conditions(self):
-        
         """Adjusting parameters based on weather conditions."""
-        
         if self.weather in ['storm', 'fog']:
             visibility = 0  # Low visibility
             capacity = max(3, self.capacity - 5)  # Reduced capacity
@@ -86,7 +77,6 @@ class AirTrafficEnv(gym.Env):
         return capacity, visibility
 
     def get_emergency_factor(self):
-        
         factor = {
             'low': 1,
             'medium': 2,
@@ -95,12 +85,10 @@ class AirTrafficEnv(gym.Env):
         return factor[self.emergency_factor]
 
     def step(self, action):
-        
         reward = 0
         done = False
 
         # Capacity and visibility adjustments
-        
         capacity, visibility = self.get_weather_conditions()
 
         if random.random() < 0.1:  # 10% chance of emergency
@@ -108,7 +96,6 @@ class AirTrafficEnv(gym.Env):
             self.emergency_factor = random.choice(['low', 'medium', 'high'])
             reward += self.get_emergency_factor() * 5
 
-    
         if action < self.runways:  # Assign runway
             if self.runway_availability[action]:
                 self.runway_availability[action] = False
@@ -118,11 +105,12 @@ class AirTrafficEnv(gym.Env):
 
         elif action < (self.runways + len(self.gates)):  # Assign gate
             gate_index = action - self.runways
-            if self.gate_availability[gate_index]:
-                self.gate_availability[gate_index] = False
-                reward += 10  # Reward for successful gate assignment
-            else:
-                reward -= 1  # Light penalty for occupied gate
+            if gate_index < len(self.gate_availability):  # Ensure gate index is valid
+                if self.gate_availability[gate_index]:
+                    self.gate_availability[gate_index] = False
+                    reward += 10  # Reward for successful gate assignment
+                else:
+                    reward -= 1  # Light penalty for occupied gate
 
         else:  # Handle taxiing or takeoff clearance
             if visibility > 3:
@@ -135,10 +123,9 @@ class AirTrafficEnv(gym.Env):
         if random.random() < 0.05:
             self.current_time_of_day = random.choice(self.time_of_day)
 
-        #termination conditions
+        # Termination conditions
         if self.emergency_flights >= 5 or len(self.aircraft_list) == 0:
             done = True
-
 
         self.state = self.get_state()
 
@@ -153,3 +140,4 @@ class AirTrafficEnv(gym.Env):
         }
 
         return self.state, reward, done, info
+

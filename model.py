@@ -22,7 +22,7 @@ model = DQN(
 )
 
 model.learn(total_timesteps=100000)
-model.save("air_traffic_modell")
+model.save("air_traffic_model")
 
 
 
