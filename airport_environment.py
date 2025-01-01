@@ -116,7 +116,7 @@ class AirTrafficEnv(gym.Env):
             else:
                 reward -= 2  # Light penalty for occupied runway (not too harsh)
 
-        elif action < self.runways + self.gates:  # Assign gate
+        elif action < (self.runways + len(self.gates)):  # Assign gate
             gate_index = action - self.runways
             if self.gate_availability[gate_index]:
                 self.gate_availability[gate_index] = False

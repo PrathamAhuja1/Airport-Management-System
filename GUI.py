@@ -230,10 +230,9 @@ class AirTrafficGUI(QMainWindow):
 
 if __name__ == '__main__':
     # Create environment and RL model
+    rl_model = DQN.load("air_traffic_modell")
     env = AirTrafficEnv()
-    rl_model = DQN("MlpPolicy", env, verbose=1)
-    
-    # Create the application and window
+
     app = QApplication(sys.argv)
     window = AirTrafficGUI(rl_model, env)
     window.show()
