@@ -29,6 +29,10 @@ class AirTrafficGUI(QMainWindow):
         self.state = self.env.reset()
         self.total_rewards = 0
 
+        # Set total number of gates to 12
+        self.env.total_gates = 12
+        self.env.gates = [None] * self.env.total_gates  # None means the gate is unoccupied
+
         self.initUI()
         self.update_flight_table()
         self.update_environment_info()
@@ -49,13 +53,13 @@ class AirTrafficGUI(QMainWindow):
         # Weather Control
         weather_layout = QHBoxLayout()
         weather_label = QLabel("Weather:")
-        self.weather_combo = QComboBox()
+        self.weather_combo = QComboBox()  # Define the combo box here
         if isinstance(self.env.weather_conditions, list):
             self.weather_combo.addItems(self.env.weather_conditions)
         self.weather_combo.setCurrentText(self.env.weather if isinstance(self.env.weather, str) else "Default")
         weather_layout.addWidget(weather_label)
         weather_layout.addWidget(self.weather_combo)
-        self.weather_combo.currentTextChanged.connect(self.change_weather)
+        self.weather_combo.currentTextChanged.connect(self.change_weather)  # Corrected reference
 
         # Time of Day Control
         time_layout = QHBoxLayout()
@@ -64,9 +68,9 @@ class AirTrafficGUI(QMainWindow):
         if isinstance(self.env.time_of_day, list):
             self.time_combo.addItems(self.env.time_of_day)
             self.time_combo.setCurrentText(self.env.time_of_day[0] if self.env.time_of_day else "Default")
-        self.time_combo.currentTextChanged.connect(self.change_time_of_day)
         time_layout.addWidget(time_label)
         time_layout.addWidget(self.time_combo)
+        self.time_combo.currentTextChanged.connect(self.change_time_of_day)
 
         # Emergency Flight Button
         self.emergency_button = QPushButton("Mark Selected Flight as Emergency")
@@ -101,22 +105,19 @@ class AirTrafficGUI(QMainWindow):
         central_widget.setLayout(main_layout)
         self.setCentralWidget(central_widget)
 
+
     def change_weather(self, selected_weather):
-        
         if selected_weather in self.env.weather_conditions:
             self.env.weather = selected_weather
             self.update_environment_info()
 
     def change_time_of_day(self, time_of_day):
-        
         if time_of_day in self.env.time_of_day:
             self.env.current_time_of_day = time_of_day
             self.update_environment_info()
 
     def mark_emergency(self):
-        
         """Mark the selected flight as emergency."""
-        
         selected_row = self.flight_table.currentRow()
         if selected_row != -1:
             flight_id = self.flight_table.item(selected_row, 0).text()
@@ -129,7 +130,6 @@ class AirTrafficGUI(QMainWindow):
             self.update_environment_info()
 
     def run_rl_step(self):
-    
         action, _ = self.rl_model.predict(self.state)
         self.state, reward, done, info = self.env.step(action)
         self.total_rewards += reward
@@ -145,27 +145,34 @@ class AirTrafficGUI(QMainWindow):
         """Update the status of flights dynamically."""
         for flight in self.env.aircraft_list:
             if flight["status"] != "Emergency":
-                flight["status"] = random.choice(["On Time", "Delayed"])
+                flight["status"] = random.choice(["On Time", "Delayed", "Landing"])
                 flight["gate_runway"] = random.choice(["Gate 1", "Runway 2", "Gate 3"])
-                
+
                 if flight["status"] == "On Time":
-                    # Assign a random takeoff time for on-time flights within the next 5 hours
+                    # Assign a random takeoff time for on-time flights
                     flight["takeoff_time"] = generate_random_takeoff_time()
                     flight["takeoff_gate"] = random.choice(["Gate 1", "Gate 2", "Runway 1", "Runway 2"])
                 elif flight["status"] == "Delayed":
                     flight["takeoff_time"] = "Delayed"
                     flight["takeoff_gate"] = "N/A"
-                    
-            # Simulating departure
-            if flight["status"] == "On Time" and random.random() < 0.1:
+                elif flight["status"] == "Landing":
+                    flight["takeoff_time"] = generate_random_takeoff_time()
+
+            # Simulating departure for "On Time" or "Landing" flights
+            if flight["status"] in ["On Time", "Landing"] and random.random() < 0.1:
                 flight["status"] = "Departed"
                 flight["takeoff_time"] = "Departed"
                 flight["takeoff_gate"] = "N/A"
+        
         self.update_flight_table()
 
     def update_flight_table(self):
-        self.flight_table.setRowCount(len(self.env.aircraft_list))
-        for row, flight in enumerate(self.env.aircraft_list):
+        """Update the flight table with flight details."""
+        # Limit to 15 flights at a time
+        flights_to_display = self.env.aircraft_list[:15]
+        self.flight_table.setRowCount(len(flights_to_display))
+
+        for row, flight in enumerate(flights_to_display):
             self.flight_table.setItem(row, 0, QTableWidgetItem(flight["id"]))
             self.flight_table.setItem(row, 1, QTableWidgetItem(flight["airline"]))
 
@@ -180,13 +187,31 @@ class AirTrafficGUI(QMainWindow):
             elif flight["status"] == "Emergency":
                 status_item.setBackground(QColor("red"))
                 status_item.setForeground(QBrush(QColor("white")))
+            elif flight["status"] == "Landing":
+                status_item.setBackground(QColor("blue"))
+                status_item.setForeground(QBrush(QColor("white")))
+
             self.flight_table.setItem(row, 2, status_item)
 
-            self.flight_table.setItem(row, 3, QTableWidgetItem(flight.get("gate_runway", "N/A")))
+            # Gate or Runway Assignment
+            gate_runway = flight.get("gate_runway", "N/A")
+            if flight["status"] == "Delayed":
+                gate_runway = f"{random.choice(['Gate', 'Runway'])} {random.randint(1, 5)}"
+            elif flight["status"] == "Landing":
+                gate_runway = f"Runway {random.randint(1, 5)}"
+            
+            self.flight_table.setItem(row, 3, QTableWidgetItem(gate_runway))
+
+            # Emergency indicator
             self.flight_table.setItem(row, 4, QTableWidgetItem("Yes" if flight["status"] == "Emergency" else "No"))
 
+            # Takeoff/Landing Time or Delayed Info
             if flight["status"] == "Emergency":
                 takeoff_info = "Emergency - No Gate/Time"
+            elif flight["status"] == "Landing":
+                takeoff_info = f"Landing at {generate_random_takeoff_time()}"
+            elif flight["status"] == "Delayed":
+                takeoff_info = f"Delayed - ETA {generate_random_takeoff_time()}"
             else:
                 takeoff_info = f"{flight.get('takeoff_time', 'N/A')} / {flight.get('takeoff_gate', 'N/A')}"
             
@@ -195,23 +220,21 @@ class AirTrafficGUI(QMainWindow):
     def update_environment_info(self):
         """Display the current environment information."""
         info = f"""
-        <b>Current Weather:</b> {self.env.weather}<br>
-        <b>Time of Day:</b> {self.env.current_time_of_day}<br>
-        <b>Available Runways:</b> {sum(self.env.runway_availability)}<br>
-        <b>Available Gates:</b> {sum(self.env.gate_availability)}<br>
-        <b>Emergency Flights:</b> {self.env.emergency_flights}
+        <b>Current Weather:</b> {self.env.weather}
+        <br><b>Current Time of Day:</b> {self.env.current_time_of_day}
+        <br><b>Total Gates:</b> {self.env.total_gates}
+        <br><b>Occupied Gates:</b> {sum(1 for gate in self.env.gates if gate is not None)}
+        <br><b>Total Emergency Flights:</b> {self.env.emergency_flights}
         """
         self.environment_info.setText(info)
 
-if __name__ == "__main__":
-    
+if __name__ == '__main__':
+    # Create environment and RL model
     env = AirTrafficEnv()
-    rl_model = DQN.load("air_traffic_model")
-
+    rl_model = DQN("MlpPolicy", env, verbose=1)
+    
+    # Create the application and window
     app = QApplication(sys.argv)
-
-    # Create the dashboard window
-    dashboard = AirTrafficGUI(rl_model, env)
-    dashboard.show()
-
+    window = AirTrafficGUI(rl_model, env)
+    window.show()
     sys.exit(app.exec_())
