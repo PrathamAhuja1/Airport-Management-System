@@ -4,6 +4,8 @@ import gym
 from gym import spaces
 from datetime import datetime, timedelta
 
+
+
 class AirTrafficEnv(gym.Env):
     def __init__(self):
         super(AirTrafficEnv, self).__init__()
@@ -20,7 +22,7 @@ class AirTrafficEnv(gym.Env):
         self.occupied_gates = 0
         self.emergency_flights = 0
         self.current_emergency_flights = 0
-        self.total_emergency_flights = 0  # Added missing attribute
+        self.total_emergency_flights = 0
         
         self.aircraft_list = []
         self.flight_gates = {}
@@ -34,6 +36,8 @@ class AirTrafficEnv(gym.Env):
         
         self.aircraft_list = self.generate_aircraft()
         self.state = self.get_state()
+
+
 
     def reset(self):
         current_time = datetime.now()
@@ -54,6 +58,8 @@ class AirTrafficEnv(gym.Env):
         self.update_occupied_gates()
         self.state = self.get_state()
         return self.state
+
+
 
     def generate_aircraft(self):
         airlines = ['Air India', 'Emirates', 'Delta', 'Lufthansa', 'Qatar Airways']
@@ -96,17 +102,21 @@ class AirTrafficEnv(gym.Env):
         aircraft.sort(key=lambda x: (-x["priority"], x["last_update"]))
         return aircraft
     
+    
+    
     def handle_emergencies(self):
+        
         """Priority handling for emergency flights"""
+        
         emergency_flights = [f for f in self.aircraft_list if f["emergency"]]
         for flight in emergency_flights:
-            # Clear runway/gate for emergency landing if needed
+
             if flight["status"] == "Emergency Landing":
-                # Find closest available runway
+                
                 runway = min(self.runway_queue.keys(), 
                            key=lambda r: len(self.runway_queue[r]))
                 
-                # Clear runway if necessary
+                
                 if self.runway_queue[runway]:
                     displaced_flight = next((f for f in self.aircraft_list 
                                           if f["id"] == self.runway_queue[runway][0]), None)
@@ -114,46 +124,53 @@ class AirTrafficEnv(gym.Env):
                         displaced_flight["assignment"] = None
                         self.runway_queue[runway].pop(0)
                 
-                # Assign runway to emergency flight
+                # Assigning runway to emergency flight#
+                
                 if flight["id"] not in self.runway_queue[runway]:
                     self.runway_queue[runway].insert(0, flight["id"])
                     flight["assignment"] = f"Runway {runway} (Emergency)"
 
     def calculate_reward(self, flight):
+        
         """Calculate reward based on conditions and flight handling"""
+        
         base_reward = 1.0
         
-        # Reward multiplier for adverse conditions
+        # Extra Reward for adverse conditions #
         if self.weather in ['storm', 'fog']:
             base_reward *= 2.0
         if self.current_time_of_day == 'night':
             base_reward *= 1.5
             
-        # Additional reward for handling emergency flights
+        # Assigning reward for handling emergency flights #
         if flight["emergency"]:
             base_reward *= 3.0
             
-        # Penalty for delays
+        # Penalty for delays #
         if flight["flight_status"] == "Delayed":
             base_reward *= 0.5
             
         return base_reward
 
     def update_occupied_gates(self):
-        """Update occupied gates count"""
+        
+        """Updating occupied gates count"""
+        
         self.occupied_gates = len(set(self.flight_gates.values()))
 
 
     def release_gate(self, flight_id):
-        """Release a gate assignment"""
+        
         if flight_id in self.flight_gates:
             self.flight_gates.pop(flight_id)
             self.preserved_gates.pop(flight_id, None)
             self.update_occupied_gates()
 
     def assign_runway(self, flight):
+        
         """Assign a runway to a flight"""
-        # Find runway with shortest queue
+        
+        # Finding runway with shortest queue #
         runway = min(self.runway_queue.keys(), 
                     key=lambda r: len(self.runway_queue[r]))
         
@@ -166,11 +183,10 @@ class AirTrafficEnv(gym.Env):
         reward = 0
         done = False
 
-        # Handle dynamic emergency situations
         for flight in self.aircraft_list:
             if not flight["emergency"]:
-                # Chance of emergency based on conditions
-                emergency_chance = 0.001  # Base chance
+            
+                emergency_chance = 0.001
                 if self.weather in ['storm', 'fog']:
                     emergency_chance *= 2
                 if flight["flight_status"] == "Delayed":
@@ -189,10 +205,9 @@ class AirTrafficEnv(gym.Env):
                         "cause": "In-flight Emergency"
                     })
 
-        # Priority handling for emergencies
+        # Priority handling for emergencies #
         self.handle_emergencies()
-
-        # Process each flight
+        
         for flight in self.aircraft_list:
             old_status = flight["status"]
             self.progress_flight_status(flight)
@@ -200,13 +215,12 @@ class AirTrafficEnv(gym.Env):
             if old_status != flight["status"]:
                 reward += self.calculate_reward(flight)
 
-        # Update active flights
+        # Updating active flights #
         self.aircraft_list = [f for f in self.aircraft_list if f["status"] != "Departed"]
         while len(self.aircraft_list) < 15:
             new_aircraft = self.generate_aircraft()[0]
             self.aircraft_list.append(new_aircraft)
         
-        # Sort by priority
         self.aircraft_list.sort(key=lambda x: (-x["priority"], x["last_update"]))
 
         self.state = self.get_state()
@@ -225,17 +239,18 @@ class AirTrafficEnv(gym.Env):
             "total_emergency_flights": self.total_emergency_flights,
             "current_emergency_flights": self.current_emergency_flights,
             "occupied_gates": self.occupied_gates,
-            "emergency_history": self.emergency_history[-5:],  # Last 5 emergencies
-            "delay_history": self.delay_history[-5:]  # Last 5 delays
+            "emergency_history": self.emergency_history[-5:],
+            "delay_history": self.delay_history[-5:]
         }
     
     def assign_gate(self, flight):
+        
         """Assign an available gate to a flight"""
-        # If flight already has a gate assigned, return it
+        
         if flight["id"] in self.flight_gates:
             return self.flight_gates[flight["id"]]
             
-        # Find first available gate
+        # Finding first available gate #
         used_gates = set(self.flight_gates.values())
         available_gates = set(range(self.num_gates)) - used_gates
         
@@ -251,7 +266,9 @@ class AirTrafficEnv(gym.Env):
     
 
     def progress_flight_status(self, flight):
+        
         """Progress flight through stages with realistic timing"""
+        
         if flight["emergency"]:
             return
 
@@ -263,9 +280,7 @@ class AirTrafficEnv(gym.Env):
             if random.random() < 0.15:
                 flight["status"] = "Taxiing to Gate"
                 flight["taxi_start_time"] = current_time
-                # Assign gate immediately when starting to taxi
                 assigned_gate = self.assign_gate(flight)
-                # Clear runway but maintain queue order
                 if flight["runway"] is not None:
                     queue = self.runway_queue[flight["runway"]]
                     if queue and queue[0] == flight["id"]:
@@ -283,7 +298,6 @@ class AirTrafficEnv(gym.Env):
                 self.release_gate(flight["id"])
                 flight["status"] = "Taxiing to Runway"
                 flight["taxi_start_time"] = current_time
-                # Assign runway immediately when starting to taxi to runway
                 self.assign_runway(flight)
                 
         elif flight["status"] == "Taxiing to Runway":
@@ -305,11 +319,12 @@ class AirTrafficEnv(gym.Env):
     def get_state(self):
         
         """Return current state"""
+        
         return np.array([
             self.weather_conditions.index(self.weather),
             self.time_of_day.index(self.current_time_of_day),
             len(self.aircraft_list),
-            self.emergency_flights,  # Changed from total_emergency_flights
+            self.emergency_flights,
             self.num_runways - len([q for q in self.runway_queue.values() if q]),
             self.num_gates - self.occupied_gates
         ], dtype=np.float32)
