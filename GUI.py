@@ -1,239 +1,335 @@
 import random
 import sys
-from PyQt5.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QLabel, QPushButton, QComboBox, QTableWidget, QTableWidgetItem, QHBoxLayout, QWidget, QHeaderView
-from PyQt5.QtCore import QTimer
-from PyQt5.QtGui import QColor, QBrush
+from PyQt5.QtWidgets import (QApplication, QMainWindow, QVBoxLayout, QLabel, 
+                            QPushButton, QComboBox, QTableWidget, QTableWidgetItem, 
+                            QHBoxLayout, QWidget, QHeaderView, QFrame, QGridLayout,
+                            QGroupBox, QStyleFactory)
+from PyQt5.QtCore import QTimer, Qt
+from PyQt5.QtGui import QColor, QBrush, QFont
 from stable_baselines3 import DQN
 from datetime import datetime, timedelta
-import pyqtgraph as pg
 import numpy as np
-import matplotlib.pyplot as plt
 from airport_environment import AirTrafficEnv
 
-# Generate a random takeoff time within the next 5 hours
-def generate_random_takeoff_time():
-    current_time = datetime.now()
-    random_minutes = random.randint(0, 5 * 60) 
-    departure_time = current_time + timedelta(minutes=random_minutes)
-    return departure_time.strftime("%H:%M:%S")
-
 class AirTrafficGUI(QMainWindow):
-    def __init__(self, rl_model, env):
+    
+    def __init__(self, model, env):
         super().__init__()
-        self.setWindowTitle("Air Traffic Management System")
-        self.setGeometry(100, 100, 800, 600)
-
-        # RL Model and Environment
-        self.rl_model = rl_model
+        self.rl_model = model
         self.env = env
-        self.state = self.env.reset()
-        self.total_rewards = 0
-
-        # Set total number of gates to 12
-        self.env.total_gates = 12
-        self.env.gates = [None] * self.env.total_gates  # None means the gate is unoccupied
-
+        self.state = env.reset()
+        self.total_rewards = 0.0
+        
+        # Set up UI
+        self.setWindowTitle('Air Traffic Control Simulator')
+        self.setGeometry(100, 100, 1200, 800)
         self.initUI()
-        self.update_flight_table()
-        self.update_environment_info()
-
-        # Timer for RL Model decision-making
+        
+        # Set up timers
+        self.update_timer = QTimer()
+        self.update_timer.timeout.connect(self.update_flight_status)
+        self.update_timer.start(12000)
+        
         self.rl_timer = QTimer()
         self.rl_timer.timeout.connect(self.run_rl_step)
-        self.rl_timer.start(2000)  # RL model decision every 2 seconds
-
-        # Timer for real-time flight updates
-        self.flight_timer = QTimer()
-        self.flight_timer.timeout.connect(self.update_flight_status)
-        self.flight_timer.start(5000)  # Update every 5 seconds
-
+        self.rl_timer.start(1000)
+        
+        self.alert_timer = QTimer()
+        self.alert_timer.timeout.connect(self.check_alerts)
+        self.alert_timer.start(2000)
+        
+        
     def initUI(self):
         main_layout = QVBoxLayout()
+        main_layout.setSpacing(10)
+
+        # Header section
+        header_group = QGroupBox("Airport Control Panel")
+        header_layout = QGridLayout()
 
         # Weather Control
-        weather_layout = QHBoxLayout()
-        weather_label = QLabel("Weather:")
-        self.weather_combo = QComboBox()  # Define the combo box here
-        if isinstance(self.env.weather_conditions, list):
-            self.weather_combo.addItems(self.env.weather_conditions)
-        self.weather_combo.setCurrentText(self.env.weather if isinstance(self.env.weather, str) else "Default")
-        weather_layout.addWidget(weather_label)
-        weather_layout.addWidget(self.weather_combo)
-        self.weather_combo.currentTextChanged.connect(self.change_weather)  # Corrected reference
+        weather_label = QLabel("Weather Conditions:")
+        weather_label.setFont(QFont('Arial', 10, QFont.Bold))
+        self.weather_combo = QComboBox()
+        self.weather_combo.addItems(self.env.weather_conditions)
+        self.weather_combo.setCurrentText(self.env.weather)
+        header_layout.addWidget(weather_label, 0, 0)
+        header_layout.addWidget(self.weather_combo, 0, 1)
+        self.weather_combo.currentTextChanged.connect(self.change_weather)
 
         # Time of Day Control
-        time_layout = QHBoxLayout()
         time_label = QLabel("Time of Day:")
+        time_label.setFont(QFont('Arial', 10, QFont.Bold))
         self.time_combo = QComboBox()
-        if isinstance(self.env.time_of_day, list):
-            self.time_combo.addItems(self.env.time_of_day)
-            self.time_combo.setCurrentText(self.env.time_of_day[0] if self.env.time_of_day else "Default")
-        time_layout.addWidget(time_label)
-        time_layout.addWidget(self.time_combo)
+        self.time_combo.addItems(self.env.time_of_day)
+        self.time_combo.setCurrentText(self.env.current_time_of_day)
+        header_layout.addWidget(time_label, 0, 2)
+        header_layout.addWidget(self.time_combo, 0, 3)
         self.time_combo.currentTextChanged.connect(self.change_time_of_day)
 
-        # Emergency Flight Button
+        # Emergency Button
         self.emergency_button = QPushButton("Mark Selected Flight as Emergency")
+        self.emergency_button.setStyleSheet("""
+            QPushButton {
+                background-color: #ff4444;
+                color: white;
+                padding: 5px;
+                border-radius: 3px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #ff0000;
+            }
+        """)
+        header_layout.addWidget(self.emergency_button, 0, 4)
         self.emergency_button.clicked.connect(self.mark_emergency)
+        header_group.setLayout(header_layout)
+
+        # Alert Panel
+        alert_group = QGroupBox("System Alerts")
+        alert_layout = QVBoxLayout()
+        self.alert_panel = QLabel("System Operating Normally")
+        self.alert_panel.setStyleSheet("""
+            QLabel {
+                background-color: #e8f5e9;
+                color: #2e7d32;
+                padding: 10px;
+                border: 1px solid #81c784;
+                border-radius: 5px;
+            }
+        """)
+        alert_layout.addWidget(self.alert_panel)
+        alert_group.setLayout(alert_layout)
 
         # Flight Table
+        table_group = QGroupBox("Flight Information")
+        table_layout = QVBoxLayout()
         self.flight_table = QTableWidget()
-        self.flight_table.setColumnCount(6)
-        self.flight_table.setHorizontalHeaderLabels(
-            ["Flight ID", "Airline", "Status", "Gate/Runway", "Emergency", "Takeoff Time / Gate"]
-        )
+        self.flight_table.setColumnCount(7)  # Reduced from 8 to 7
+        self.flight_table.setHorizontalHeaderLabels([
+            "Flight ID", "Airline", "Status", 
+            "Flight Status", "Gate/Runway", "Schedule", "Emergency"
+        ])
         self.flight_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        table_layout.addWidget(self.flight_table)
+        table_group.setLayout(table_layout)
 
         # Environment Info
+        info_group = QGroupBox("Environment Statistics")
+        info_layout = QVBoxLayout()
         self.environment_info = QLabel()
-        self.environment_info.setStyleSheet("font-size: 14px;")
-
-        # Total Rewards Display
         self.rewards_label = QLabel(f"Total Rewards: {self.total_rewards}")
-        self.rewards_label.setStyleSheet("font-size: 16px; font-weight: bold; color: green;")
+        info_layout.addWidget(self.environment_info)
+        info_layout.addWidget(self.rewards_label)
+        info_group.setLayout(info_layout)
 
-        # Adding widgets to layout
-        main_layout.addLayout(weather_layout)
-        main_layout.addLayout(time_layout)
-        main_layout.addWidget(self.emergency_button)
-        main_layout.addWidget(self.flight_table)
-        main_layout.addWidget(self.environment_info)
-        main_layout.addWidget(self.rewards_label)
+        # Add all sections to main layout
+        main_layout.addWidget(header_group)
+        main_layout.addWidget(alert_group)
+        main_layout.addWidget(table_group)
+        main_layout.addWidget(info_group)
 
-        # Central widget
         central_widget = QWidget()
         central_widget.setLayout(main_layout)
         self.setCentralWidget(central_widget)
 
 
+    def get_flight_status_color(self, flight_status):
+        """Get color for flight status (On Time/Delayed/Emergency)."""
+        status_colors = {
+            "On Time": (QColor(76, 175, 80), QColor("white")),  # Green
+            "Delayed": (QColor(255, 152, 0), QColor("black")),  # Yellow/Orange
+            "Emergency": (QColor(244, 67, 54), QColor("white")) # Red
+        }
+        return status_colors.get(flight_status, (QColor("white"), QColor("black")))
+
+    def get_operation_status_color(self, status):
+        """Get color for operation status (Landing/Taxiing/etc)."""
+        status_colors = {
+            "Landing": (QColor(3, 169, 244), QColor("white")),        # Light Blue
+            "Taxiing to Gate": (QColor(255, 193, 7), QColor("black")), # Amber
+            "At Gate": (QColor(76, 175, 80), QColor("white")),        # Green
+            "Taxiing to Runway": (QColor(255, 152, 0), QColor("black")), # Orange
+            "Taking Off": (QColor(33, 150, 243), QColor("white")),     # Blue
+            "Departed": (QColor(158, 158, 158), QColor("white"))      # Gray
+        }
+        return status_colors.get(status, (QColor("white"), QColor("black")))
+
+    def update_flight_table(self):
+        self.flight_table.setRowCount(len(self.env.aircraft_list))
+
+        for row, flight in enumerate(self.env.aircraft_list):
+            # Flight ID
+            self.flight_table.setItem(row, 0, QTableWidgetItem(flight["id"]))
+            
+            # Airline
+            self.flight_table.setItem(row, 1, QTableWidgetItem(flight["airline"]))
+            
+            # Status
+            status_item = QTableWidgetItem(flight["status"])
+            bg_color, text_color = self.get_operation_status_color(flight["status"])
+            status_item.setBackground(bg_color)
+            status_item.setForeground(QBrush(text_color))
+            self.flight_table.setItem(row, 2, status_item)
+            
+            # Flight Status
+            flight_status_item = QTableWidgetItem(flight["flight_status"])
+            bg_color, text_color = self.get_flight_status_color(flight["flight_status"])
+            flight_status_item.setBackground(bg_color)
+            flight_status_item.setForeground(QBrush(text_color))
+            self.flight_table.setItem(row, 3, flight_status_item)
+            
+            # Gate/Runway
+            location_text = "—"
+            if flight["status"] in ["Landing", "Taking Off", "Taxiing to Runway"] and flight["runway"] is not None:
+                if flight["status"] == "Taxiing to Runway":
+                    location_text = f"Runway-{flight['runway']} (Assigned)"
+                else:
+                    position = "Landing" if flight["status"] == "Landing" else "Takeoff"
+                    location_text = f"Runway-{flight['runway']} ({position})"
+            elif flight["status"] in ["At Gate", "Taxiing to Gate"] and flight["id"] in self.env.flight_gates:
+                gate_num = self.env.flight_gates[flight["id"]]
+                location_text = f"Gate-{gate_num}"
+            
+            location_item = QTableWidgetItem(location_text)
+            location_item.setTextAlignment(Qt.AlignCenter)
+            self.flight_table.setItem(row, 4, location_item)
+            
+            # Schedule
+            self.flight_table.setItem(row, 5, QTableWidgetItem(flight["scheduled_time"]))
+            
+            # Emergency
+            emergency_item = QTableWidgetItem("EMERGENCY" if flight["emergency"] else "—")
+            if flight["emergency"]:
+                emergency_item.setBackground(QColor(244, 67, 54))
+                emergency_item.setForeground(QBrush(QColor("white")))
+            self.flight_table.setItem(row, 6, emergency_item)
+
+            # Center align all items
+            for col in range(7):
+                if self.flight_table.item(row, col):
+                    self.flight_table.item(row, col).setTextAlignment(Qt.AlignCenter)        
+            
+            
+    def check_alerts(self):
+        """Check for system alerts and emergencies"""
+        alerts = []
+        
+        # Check emergency flights
+        emergency_flights = [f for f in self.env.aircraft_list if f["emergency"]]
+        if emergency_flights:
+            alerts.append(f"⚠️ {len(emergency_flights)} Emergency Flights Active!")
+            
+        # Check weather conditions
+        if self.env.weather in ['storm', 'fog']:
+            alerts.append(f"⚠️ Adverse Weather: {self.env.weather}")
+            
+        # Check resource utilization
+        if self.env.occupied_gates >= self.env.num_gates * 0.9:
+            alerts.append("⚠️ Gate Capacity Critical!")
+            
+        # Update alert panel
+        if alerts:
+            self.alert_panel.setText("\n".join(alerts))
+            self.alert_panel.setStyleSheet("""
+                QLabel {
+                    background-color: #ffebee;
+                    color: #c62828;
+                    padding: 10px;
+                    border: 1px solid #ef5350;
+                    border-radius: 5px;
+                    font-weight: bold;
+                }
+            """)
+        else:
+            self.alert_panel.setText("System Operating Normally")
+            self.alert_panel.setStyleSheet("""
+                QLabel {
+                    background-color: #e8f5e9;
+                    color: #2e7d32;
+                    padding: 10px;
+                    border: 1px solid #81c784;
+                    border-radius: 5px;
+                }
+            """)        
+
+    def update_environment_info(self):
+        """Update the environment information display."""
+        info = f"""
+        <table style='width: 100%; margin: 10px;'>
+            <tr>
+                <td><b>Current Weather:</b></td>
+                <td>{self.env.weather}</td>
+                <td><b>Time of Day:</b></td>
+                <td>{self.env.current_time_of_day}</td>
+            </tr>
+            <tr>
+                <td><b>Available Gates:</b></td>
+                <td>{self.env.num_gates - self.env.occupied_gates} / {self.env.num_gates}</td>
+                <td><b>Occupied Gates:</b></td>
+                <td>{self.env.occupied_gates}</td>
+            </tr>
+            <tr>
+                <td><b>Available Runways:</b></td>
+                <td>{self.env.num_runways - len([q for q in self.env.runway_queue.values() if q])} / {self.env.num_runways}</td>
+                <td><b>Emergency Flights:</b></td>
+                <td>{self.env.emergency_flights}</td>
+            </tr>
+            <tr>
+                <td><b>Total Active Flights:</b></td>
+                <td>{len(self.env.aircraft_list)}</td>
+                <td><b>Weather Status:</b></td>
+                <td>{'Normal' if self.env.weather not in ['storm', 'fog'] else 'Adverse Conditions'}</td>
+            </tr>
+        </table>
+        """
+        self.environment_info.setText(info)
+
     def change_weather(self, selected_weather):
-        if selected_weather in self.env.weather_conditions:
-            self.env.weather = selected_weather
-            self.update_environment_info()
+        self.env.weather = selected_weather
+        self.update_environment_info()
 
     def change_time_of_day(self, time_of_day):
-        if time_of_day in self.env.time_of_day:
-            self.env.current_time_of_day = time_of_day
-            self.update_environment_info()
+        self.env.current_time_of_day = time_of_day
+        self.update_environment_info()
 
     def mark_emergency(self):
-        """Mark the selected flight as emergency."""
         selected_row = self.flight_table.currentRow()
         if selected_row != -1:
             flight_id = self.flight_table.item(selected_row, 0).text()
             for flight in self.env.aircraft_list:
-                if flight["id"] == flight_id:
+                if flight["id"] == flight_id and not flight["emergency"]:
                     flight["status"] = "Emergency"
+                    flight["flight_status"] = "Emergency"
+                    flight["emergency"] = True
                     self.env.emergency_flights += 1
                     break
             self.update_flight_table()
             self.update_environment_info()
 
     def run_rl_step(self):
+        """Execute one step of the RL model."""
         action, _ = self.rl_model.predict(self.state)
         self.state, reward, done, info = self.env.step(action)
         self.total_rewards += reward
+        self.rewards_label.setText(f"Total Rewards: {self.total_rewards:,.2f}")
         self.update_flight_table()
         self.update_environment_info()
-        self.rewards_label.setText(f"Total Rewards: {self.total_rewards}")
-
-        if done:
-            self.state = self.env.reset()
-            self.total_rewards = 0
 
     def update_flight_status(self):
-        """Update the status of flights dynamically."""
-        for flight in self.env.aircraft_list:
-            if flight["status"] != "Emergency":
-                flight["status"] = random.choice(["On Time", "Delayed", "Landing"])
-                flight["gate_runway"] = random.choice(["Gate 1", "Runway 2", "Gate 3"])
-
-                if flight["status"] == "On Time":
-                    # Assign a random takeoff time for on-time flights
-                    flight["takeoff_time"] = generate_random_takeoff_time()
-                    flight["takeoff_gate"] = random.choice(["Gate 1", "Gate 2", "Runway 1", "Runway 2"])
-                elif flight["status"] == "Delayed":
-                    flight["takeoff_time"] = "Delayed"
-                    flight["takeoff_gate"] = "N/A"
-                elif flight["status"] == "Landing":
-                    flight["takeoff_time"] = generate_random_takeoff_time()
-
-            # Simulating departure for "On Time" or "Landing" flights
-            if flight["status"] in ["On Time", "Landing"] and random.random() < 0.1:
-                flight["status"] = "Departed"
-                flight["takeoff_time"] = "Departed"
-                flight["takeoff_gate"] = "N/A"
-        
+        """Update flight statuses based on environment step."""
+        self.state = self.env.reset()  # Reset every 12 seconds
         self.update_flight_table()
+        self.update_environment_info()
 
-    def update_flight_table(self):
-        """Update the flight table with flight details."""
-        # Limit to 15 flights at a time
-        flights_to_display = self.env.aircraft_list[:15]
-        self.flight_table.setRowCount(len(flights_to_display))
-
-        for row, flight in enumerate(flights_to_display):
-            self.flight_table.setItem(row, 0, QTableWidgetItem(flight["id"]))
-            self.flight_table.setItem(row, 1, QTableWidgetItem(flight["airline"]))
-
-            # Status column with color coding
-            status_item = QTableWidgetItem(flight["status"])
-            if flight["status"] == "On Time":
-                status_item.setBackground(QColor("green"))
-                status_item.setForeground(QBrush(QColor("white")))
-            elif flight["status"] == "Delayed":
-                status_item.setBackground(QColor("yellow"))
-                status_item.setForeground(QBrush(QColor("black")))
-            elif flight["status"] == "Emergency":
-                status_item.setBackground(QColor("red"))
-                status_item.setForeground(QBrush(QColor("white")))
-            elif flight["status"] == "Landing":
-                status_item.setBackground(QColor("blue"))
-                status_item.setForeground(QBrush(QColor("white")))
-
-            self.flight_table.setItem(row, 2, status_item)
-
-            # Gate or Runway Assignment
-            gate_runway = flight.get("gate_runway", "N/A")
-            if flight["status"] == "Delayed":
-                gate_runway = f"{random.choice(['Gate', 'Runway'])} {random.randint(1, 5)}"
-            elif flight["status"] == "Landing":
-                gate_runway = f"Runway {random.randint(1, 5)}"
-            
-            self.flight_table.setItem(row, 3, QTableWidgetItem(gate_runway))
-
-            # Emergency indicator
-            self.flight_table.setItem(row, 4, QTableWidgetItem("Yes" if flight["status"] == "Emergency" else "No"))
-
-            # Takeoff/Landing Time or Delayed Info
-            if flight["status"] == "Emergency":
-                takeoff_info = "Emergency - No Gate/Time"
-            elif flight["status"] == "Landing":
-                takeoff_info = f"Landing at {generate_random_takeoff_time()}"
-            elif flight["status"] == "Delayed":
-                takeoff_info = f"Delayed - ETA {generate_random_takeoff_time()}"
-            else:
-                takeoff_info = f"{flight.get('takeoff_time', 'N/A')} / {flight.get('takeoff_gate', 'N/A')}"
-            
-            self.flight_table.setItem(row, 5, QTableWidgetItem(takeoff_info))
-
-    def update_environment_info(self):
-        """Display the current environment information."""
-        info = f"""
-        <b>Current Weather:</b> {self.env.weather}
-        <br><b>Current Time of Day:</b> {self.env.current_time_of_day}
-        <br><b>Total Gates:</b> {self.env.total_gates}
-        <br><b>Occupied Gates:</b> {sum(1 for gate in self.env.gates if gate is not None)}
-        <br><b>Total Emergency Flights:</b> {self.env.emergency_flights}
-        """
-        self.environment_info.setText(info)
-
-if __name__ == '__main__':
-    # Create environment and RL model
-    rl_model = DQN.load("air_traffic_model")
-    env = AirTrafficEnv()
-
+def main():
     app = QApplication(sys.argv)
-    window = AirTrafficGUI(rl_model, env)
+    app.setStyle(QStyleFactory.create('Fusion'))  # Added style
+    env = AirTrafficEnv()
+    model = DQN.load("air_traffic_model")
+    window = AirTrafficGUI(model, env)
     window.show()
     sys.exit(app.exec_())
+
+if __name__ == "__main__":
+    main()
