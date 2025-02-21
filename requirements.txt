@@ -1,0 +1,4 @@
+numpy
+gym
+pyQt5
+stable-baselines3
